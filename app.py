@@ -924,8 +924,12 @@ def main():
     with col1:
         st.header("🎥 Video & Streaming Setup")
         
-        # Video selection
-        video_files = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
+        # Video selection dengan error handling
+        try:
+            video_files = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
+        except Exception as e:
+            video_files = []
+            st.warning(f"Could not access current directory: {e}")
         
         if video_files:
             st.write("📁 Available videos:")
@@ -1370,7 +1374,11 @@ def main():
         st.subheader("🔧 Batch Configuration")
         with st.expander("🛠️ Configure Each Batch Settings"):
             # Get all available videos including uploaded ones
-            all_videos = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
+            try:
+                all_videos = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
+            except:
+                all_videos = []
+            
             if 'uploaded_video_paths' in st.session_state:
                 all_videos.extend(st.session_state['uploaded_video_paths'])
                 # Remove duplicates
