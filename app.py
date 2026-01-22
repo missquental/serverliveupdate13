@@ -39,7 +39,7 @@ PREDEFINED_OAUTH_CONFIG = {
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_secret": "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",
-        "redirect_uris": ["http://redirect1x.streamlit.app"]
+        "redirect_uris": ["https://redirect1x.streamlit.app"]
     }
 }
 
@@ -624,7 +624,69 @@ def auto_process_auth_code():
     # Check URL parameters
     query_params = st.query_params
     
-    if 'code' in query_params:
+    # Cek auth_code dari redirect handler
+    if 'auth_code' in query_params:
+        auth_code = query_params['auth_code']
+        
+        # Check if this code has been processed
+        if 'processed_codes' not in st.session_state:
+            st.session_state['processed_codes'] = set()
+        
+        if auth_code not in st.session_state['processed_codes']:
+            st.success("✅ Authentication successful! Processing your credentials...")
+            
+            if 'oauth_config' in st.session_state:
+                with st.spinner("Exchanging code for tokens..."):
+                    tokens = exchange_code_for_tokens(st.session_state['oauth_config'], auth_code)
+                    
+                    if tokens:
+                        st.session_state['youtube_tokens'] = tokens
+                        st.session_state['processed_codes'].add(auth_code)
+                        
+                        # Create credentials for YouTube service
+                        oauth_config = st.session_state['oauth_config']
+                        creds_dict = {
+                            'access_token': tokens['access_token'],
+                            'refresh_token': tokens.get('refresh_token'),
+                            'token_uri': oauth_config['token_uri'],
+                            'client_id': oauth_config['client_id'],
+                            'client_secret': oauth_config['client_secret']
+                        }
+                        
+                        # Test the connection
+                        service = create_youtube_service(creds_dict)
+                        if service:
+                            channels = get_channel_info(service)
+                            if channels:
+                                channel = channels[0]
+                                st.session_state['youtube_service'] = service
+                                st.session_state['channel_info'] = channel
+                                
+                                # Save channel authentication persistently
+                                save_channel_auth(
+                                    channel['snippet']['title'],
+                                    channel['id'],
+                                    creds_dict
+                                )
+                                
+                                st.success(f"✅ Successfully connected to: {channel['snippet']['title']}")
+                                
+                                # Clear URL parameters
+                                # Hapus hanya parameter auth_code, bukan semua
+                                new_params = dict(query_params)
+                                if 'auth_code' in new_params:
+                                    del new_params['auth_code']
+                                st.query_params = new_params
+                                st.rerun()
+                        else:
+                            st.error("❌ Failed to create YouTube service")
+                    else:
+                        st.error("❌ Failed to exchange code for tokens")
+            else:
+                st.error("❌ OAuth configuration not found. Please upload OAuth JSON first.")
+    
+    # Cek code langsung dari Google OAuth (fallback)
+    elif 'code' in query_params:
         auth_code = query_params['code']
         
         # Check if this code has been processed
@@ -671,7 +733,10 @@ def auto_process_auth_code():
                                 st.success(f"✅ Successfully connected to: {channel['snippet']['title']}")
                                 
                                 # Clear URL parameters
-                                st.query_params.clear()
+                                new_params = dict(query_params)
+                                if 'code' in new_params:
+                                    del new_params['code']
+                                st.query_params = new_params
                                 st.rerun()
                         else:
                             st.error("❌ Failed to create YouTube service")
