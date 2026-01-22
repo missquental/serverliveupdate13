@@ -959,14 +959,18 @@ def main():
     with col1:
         st.header("🎥 Video & Streaming Setup")
         
-        # Video selection - PERBAIKAN TOTAL
+        # Video selection - PENDEKATAN PATHLIB YANG AMAN
+        video_files = []
         try:
-            video_files = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
-        except (PermissionError, FileNotFoundError, OSError) as e:
-            st.warning(f"⚠️ Cannot access current directory to list video files: {e}")
-            video_files = []
-        except Exception as e:
-            st.warning(f"⚠️ Unexpected error accessing directory: {e}")
+            current_path = Path('.')
+            if current_path.exists() and current_path.is_dir():
+                video_extensions = {'.mp4', '.flv', '.avi', '.mov', '.mkv'}
+                video_files = [f.name for f in current_path.iterdir() 
+                              if f.is_file() and f.suffix.lower() in video_extensions]
+            else:
+                st.warning("⚠️ Current directory not accessible")
+        except Exception as dir_error:
+            st.warning(f"⚠️ Cannot access current directory: {str(dir_error)}")
             video_files = []
 
         if video_files:
@@ -1412,13 +1416,17 @@ def main():
         st.subheader("🔧 Batch Configuration")
         with st.expander("🛠️ Configure Each Batch Settings"):
             # Get all available videos including uploaded ones
+            all_videos = []
             try:
-                all_videos = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
-            except (PermissionError, FileNotFoundError, OSError) as e:
-                st.warning(f"⚠️ Cannot access directory for batch videos: {e}")
-                all_videos = []
-            except Exception as e:
-                st.warning(f"⚠️ Unexpected error accessing directory: {e}")
+                current_path = Path('.')
+                if current_path.exists() and current_path.is_dir():
+                    video_extensions = {'.mp4', '.flv', '.avi', '.mov', '.mkv'}
+                    all_videos = [f.name for f in current_path.iterdir() 
+                                 if f.is_file() and f.suffix.lower() in video_extensions]
+                else:
+                    st.warning("⚠️ Current directory not accessible for batch videos")
+            except Exception as batch_dir_error:
+                st.warning(f"⚠️ Cannot access directory for batch videos: {str(batch_dir_error)}")
                 all_videos = []
                 
             if 'uploaded_video_paths' in st.session_state:
