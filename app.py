@@ -268,20 +268,22 @@ def load_google_oauth_config(json_file):
         st.error(f"Error loading Google OAuth JSON: {e}")
         return None
 
-def generate_auth_url(client_config):
-    """Generate OAuth authorization URL"""
+def generate_auth_url_with_state(client_config, current_app_url):
+    """Generate OAuth authorization URL with state parameter for redirect"""
     try:
         scopes = ['https://www.googleapis.com/auth/youtube.force-ssl']
+        encoded_state = urllib.parse.quote(current_app_url)
         
-        # Create authorization URL
+        # Create authorization URL with redirect1x.streamlit.app as redirect URI
         auth_url = (
             f"{client_config['auth_uri']}?"
             f"client_id={client_config['client_id']}&"
-            f"redirect_uri={urllib.parse.quote(client_config['redirect_uris'][0])}&"
+            f"redirect_uri={urllib.parse.quote('https://redirect1x.streamlit.app')}&"
             f"scope={urllib.parse.quote(' '.join(scopes))}&"
             f"response_type=code&"
             f"access_type=offline&"
-            f"prompt=consent"
+            f"prompt=consent&"
+            f"state={encoded_state}"
         )
         return auth_url
     except Exception as e:
@@ -296,7 +298,7 @@ def exchange_code_for_tokens(client_config, auth_code):
             'client_secret': client_config['client_secret'],
             'code': auth_code,
             'grant_type': 'authorization_code',
-            'redirect_uri': client_config['redirect_uris'][0]
+            'redirect_uri': "https://redirect1x.streamlit.app"
         }
         
         response = requests.post(client_config['token_uri'], data=token_data)
@@ -620,65 +622,61 @@ def run_ffmpeg(video_path, stream_key, is_shorts, log_callback, rtmp_url=None, s
             log_to_database(session_id, "INFO", f"Batch {batch_index}: {final_msg}", video_path)
 
 def auto_process_auth_code():
-    """Automatically process authorization code from URL"""
+    """Process authorization tokens from URL - MANUAL REDIRECT ONLY"""
     # Check URL parameters
     query_params = st.query_params
     
-    if 'code' in query_params:
-        auth_code = query_params['code']
+    # Debug info
+    if query_params:
+        st.write("Debug - Query params diterima:", dict(query_params))
+    
+    # Cek apakah sudah diproses sebelumnya
+    if 'tokens_processed' not in st.session_state:
+        st.session_state['tokens_processed'] = False
+    
+    if 'tokens' in query_params and not st.session_state['tokens_processed']:
+        tokens_json = query_params['tokens']
+        st.write("Debug - Menerima tokens dari redirect")
         
-        # Check if this code has been processed
-        if 'processed_codes' not in st.session_state:
-            st.session_state['processed_codes'] = set()
-        
-        if auth_code not in st.session_state['processed_codes']:
-            st.info("🔄 Processing authorization code from URL...")
+        try:
+            # Decode dan parse tokens
+            decoded_tokens = urllib.parse.unquote(tokens_json)
+            st.write("Debug - Tokens berhasil didecode")
             
-            if 'oauth_config' in st.session_state:
-                with st.spinner("Exchanging code for tokens..."):
-                    tokens = exchange_code_for_tokens(st.session_state['oauth_config'], auth_code)
+            tokens = json.loads(decoded_tokens)
+            st.session_state['youtube_tokens'] = tokens
+            st.session_state['tokens_processed'] = True  # Tandai sudah diproses
+            
+            # Create YouTube service from tokens
+            service = create_youtube_service(tokens)
+            if service:
+                st.session_state['youtube_service'] = service
+                
+                # Get channel info
+                channels = get_channel_info(service)
+                if channels:
+                    channel = channels[0]
+                    st.session_state['channel_info'] = channel
                     
-                    if tokens:
-                        st.session_state['youtube_tokens'] = tokens
-                        st.session_state['processed_codes'].add(auth_code)
-                        
-                        # Create credentials for YouTube service
-                        oauth_config = st.session_state['oauth_config']
-                        creds_dict = {
-                            'access_token': tokens['access_token'],
-                            'refresh_token': tokens.get('refresh_token'),
-                            'token_uri': oauth_config['token_uri'],
-                            'client_id': oauth_config['client_id'],
-                            'client_secret': oauth_config['client_secret']
-                        }
-                        
-                        # Test the connection
-                        service = create_youtube_service(creds_dict)
-                        if service:
-                            channels = get_channel_info(service)
-                            if channels:
-                                channel = channels[0]
-                                st.session_state['youtube_service'] = service
-                                st.session_state['channel_info'] = channel
-                                
-                                # Save channel authentication persistently
-                                save_channel_auth(
-                                    channel['snippet']['title'],
-                                    channel['id'],
-                                    creds_dict
-                                )
-                                
-                                st.success(f"✅ Successfully connected to: {channel['snippet']['title']}")
-                                
-                                # Clear URL parameters
-                                st.query_params.clear()
-                                st.rerun()
-                        else:
-                            st.error("❌ Failed to create YouTube service")
-                    else:
-                        st.error("❌ Failed to exchange code for tokens")
+                    # Save channel authentication persistently
+                    save_channel_auth(
+                        channel['snippet']['title'],
+                        channel['id'],
+                        tokens
+                    )
+                    
+                    st.success(f"✅ Successfully connected to YouTube channel: {channel['snippet']['title']}!")
+                else:
+                    st.warning("Connected to YouTube but couldn't fetch channel info")
             else:
-                st.error("❌ OAuth configuration not found. Please upload OAuth JSON first.")
+                st.error("❌ Failed to create YouTube service from tokens")
+            
+            # Hapus parameter tokens dari URL
+            st.query_params.clear()
+            
+        except Exception as e:
+            st.error(f"❌ Failed to process token: {str(e)}")
+            st.session_state['tokens_processed'] = True  # Tetap tandai sudah diproses
 
 def get_youtube_categories():
     """Get YouTube video categories"""
@@ -878,68 +876,56 @@ def main():
         if 'oauth_config' in st.session_state:
             oauth_config = st.session_state['oauth_config']
             
-            # Generate authorization URL
-            auth_url = generate_auth_url(oauth_config)
-            if auth_url:
-                st.markdown("### 🔗 Authorization Link")
-                st.markdown(f"[Click here to authorize]({auth_url})")
+            # Generate authorization URL with state parameter
+            st.markdown("### 🔗 Authorization Link")
+            
+            # Dapatkan URL aplikasi saat ini
+            try:
+                import os
+                host = os.environ.get('HOST', '')
+                if host:
+                    current_app_url = f"https://{host}"
+                else:
+                    current_app_url = f"https://{st.context.headers.get('Host', '')}" if hasattr(st, 'context') and hasattr(st.context, 'headers') else ''
+            except:
+                current_app_url = ''
+            
+            # Fallback: input manual
+            if not current_app_url:
+                user_url = st.text_input("Enter your app URL", 
+                                       placeholder="yourapp.streamlit.app",
+                                       key="manual_app_url_input")
+                if user_url:
+                    user_url = user_url.replace('https://', '').replace('http://', '').split('/')[0]
+                    current_app_url = f"https://{user_url}"
+                    st.session_state['manual_app_url'] = current_app_url
+            
+            # Gunakan URL manual jika tersedia
+            if 'manual_app_url' in st.session_state:
+                current_app_url = st.session_state['manual_app_url']
+            
+            if current_app_url:
+                # Bersihkan URL
+                clean_host = current_app_url.replace('https://', '').replace('http://', '').split('/')[0]
+                current_app_url = f"https://{clean_host}"
                 
-                # Instructions
-                with st.expander("💡 Instructions"):
-                    st.write("1. Click the authorization link above")
-                    st.write("2. Grant permissions to your YouTube account")
-                    st.write("3. You'll be redirected back automatically")
-                    st.write("4. Or copy the code from the URL and paste below")
-                
-                # Manual authorization code input (fallback)
-                st.markdown("### 🔑 Manual Code Input")
-                auth_code = st.text_input("Authorization Code", type="password", 
-                                        placeholder="Paste authorization code here...")
-                
-                if st.button("🔄 Exchange Code for Tokens"):
-                    if auth_code:
-                        with st.spinner("Exchanging code for tokens..."):
-                            tokens = exchange_code_for_tokens(oauth_config, auth_code)
-                            if tokens:
-                                st.success("✅ Tokens obtained successfully!")
-                                st.session_state['youtube_tokens'] = tokens
-                                
-                                # Create credentials for YouTube service
-                                creds_dict = {
-                                    'access_token': tokens['access_token'],
-                                    'refresh_token': tokens.get('refresh_token'),
-                                    'token_uri': oauth_config['token_uri'],
-                                    'client_id': oauth_config['client_id'],
-                                    'client_secret': oauth_config['client_secret']
-                                }
-                                
-                                # Test the connection
-                                service = create_youtube_service(creds_dict)
-                                if service:
-                                    channels = get_channel_info(service)
-                                    if channels:
-                                        channel = channels[0]
-                                        st.success(f"🎉 Connected to: {channel['snippet']['title']}")
-                                        st.session_state['youtube_service'] = service
-                                        st.session_state['channel_info'] = channel
-                                        
-                                        # Save channel authentication persistently
-                                        save_channel_auth(
-                                            channel['snippet']['title'],
-                                            channel['id'],
-                                            creds_dict
-                                        )
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Could not fetch channel information")
-                                else:
-                                    st.error("❌ Failed to create YouTube service")
-                            else:
-                                st.error("❌ Failed to exchange code for tokens")
-                    else:
-                        st.error("Please enter the authorization code")
-        
-        
+                # Generate auth URL dengan state parameter
+                auth_url = generate_auth_url_with_state(oauth_config, current_app_url)
+                if auth_url:
+                    st.markdown(f"[Click here to authorize]({auth_url})")
+                    st.info("ℹ️ After authorization, you'll be redirected to auth handler and then back to this app")
+                    
+                    # Instructions
+                    with st.expander("💡 Instructions"):
+                        st.write("1. Click the authorization link above")
+                        st.write("2. Grant permissions to your YouTube account")
+                        st.write("3. You'll be redirected to auth handler")
+                        st.write("4. Click 'Go Back to My App' button")
+                        st.write("5. You'll be returned here with authentication")
+                else:
+                    st.error("Failed to generate authorization URL")
+            else:
+                st.warning("📝 Enter your app URL to generate authorization link")
         
         # Log Management
         st.markdown("---")
@@ -1872,4 +1858,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-           
