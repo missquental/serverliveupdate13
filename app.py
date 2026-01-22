@@ -959,11 +959,14 @@ def main():
     with col1:
         st.header("🎥 Video & Streaming Setup")
         
-        # Video selection - PERBAIKAN DISINI
+        # Video selection - PERBAIKAN TOTAL
         try:
             video_files = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
         except (PermissionError, FileNotFoundError, OSError) as e:
             st.warning(f"⚠️ Cannot access current directory to list video files: {e}")
+            video_files = []
+        except Exception as e:
+            st.warning(f"⚠️ Unexpected error accessing directory: {e}")
             video_files = []
 
         if video_files:
@@ -1409,7 +1412,15 @@ def main():
         st.subheader("🔧 Batch Configuration")
         with st.expander("🛠️ Configure Each Batch Settings"):
             # Get all available videos including uploaded ones
-            all_videos = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
+            try:
+                all_videos = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
+            except (PermissionError, FileNotFoundError, OSError) as e:
+                st.warning(f"⚠️ Cannot access directory for batch videos: {e}")
+                all_videos = []
+            except Exception as e:
+                st.warning(f"⚠️ Unexpected error accessing directory: {e}")
+                all_videos = []
+                
             if 'uploaded_video_paths' in st.session_state:
                 all_videos.extend(st.session_state['uploaded_video_paths'])
                 # Remove duplicates
