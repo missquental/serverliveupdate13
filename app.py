@@ -39,7 +39,7 @@ PREDEFINED_OAUTH_CONFIG = {
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
         "client_secret": "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",
-        "redirect_uris": ["https://redirectyoutubex.blogspot.com"]
+        "redirect_uris": ["http://redirect1x.streamlit.app"]
     }
 }
 
