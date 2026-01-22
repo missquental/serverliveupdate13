@@ -959,8 +959,12 @@ def main():
     with col1:
         st.header("🎥 Video & Streaming Setup")
         
-        # Video selection
-        video_files = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
+       # SESUDAH - Kode baru dengan penanganan error
+try:
+    video_files = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.avi', '.mov', '.mkv'))]
+except (PermissionError, FileNotFoundError, OSError) as e:
+    st.warning(f"⚠️ Cannot access current directory to list video files: {e}")
+    video_files = []
         
         if video_files:
             st.write("📁 Available videos:")
